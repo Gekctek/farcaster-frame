@@ -1,0 +1,6 @@
+[dependencies]
+ic-certification = "0.1.3"
+base = "0.10.0"
+motoko-sha = "https://github.com/enzoh/motoko-sha#master"
+StableHashMap = "https://github.com/canscale/StableHashMap#master"
+certified-cache = "0.2.1"
