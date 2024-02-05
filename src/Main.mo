@@ -15,9 +15,12 @@ import Principal "mo:base/Principal";
 import Buffer "mo:base/Buffer";
 import Nat8 "mo:base/Nat8";
 import CertifiedCache "mo:certified-cache";
+import Http "mo:certified-cache/Http";
 import Int "mo:base/Int";
 import Nat "mo:base/Nat";
+import Array "mo:base/Array";
 import Serde "mo:serde";
+import JSON "mo:json.mo";
 
 actor FrameActor {
     type HttpRequest = HTTP.HttpRequest;
@@ -26,11 +29,18 @@ actor FrameActor {
     public type FarcasterMessage = {
         untrustedData : {
             fid : Nat;
+            url : Text;
+            messageHash : Text;
+            timestamp : Int;
+            network : Nat;
             buttonIndex : Nat;
             castId : {
                 fid : Nat;
                 hash : Text;
             };
+        };
+        trustedData : {
+            messageBytes : Text;
         };
     };
 
@@ -85,12 +95,15 @@ actor FrameActor {
         };
     };
 
-    public func http_request_update(req : HttpRequest) : async HttpResponse {
+    type HttpUpdateRequest = {
+        method : Text;
+        url : Text;
+        headers : [Http.HeaderField];
+        body : Blob;
+    };
+    public func http_request_update(req : HttpUpdateRequest) : async HttpResponse {
         let url = req.url;
-
-        Debug.print("Storing request in cache.");
         let time = Time.now();
-
         if (req.url == "/" or req.url == "/index.html") {
             let page = main_page();
             let response : HttpResponse = {
@@ -140,13 +153,31 @@ actor FrameActor {
             case (null) Debug.trap("Failed to decode request body to utf8 text: ");
             case (?text) text;
         };
-        let candidBlob = switch (Serde.JSON.fromText(jsonText, null)) {
-            case (#ok(blob)) blob;
-            case (#err(e)) Debug.trap("Failed to encode candid: " # e);
-        };
-        let ?message : ?FarcasterMessage = from_candid (candidBlob) else Debug.trap("Failed to decode candid");
+        let ?json = JSON.parse(jsonText) else Debug.trap("Failed to parse json: " # jsonText);
+        let #Object(fields) = json else Debug.trap("A: " # debug_show (json));
+        let (untrustedDataKey, #Object(untrustedData)) = fields[0] else Debug.trap("B: " # debug_show (fields));
+        let ?buttonIndexField = Array.find(
+            untrustedData,
+            func(field : (Text, JSON.JSON)) : Bool {
+                switch (field) {
+                    case (("buttonIndex", _)) true;
+                    case (_) false;
+                };
+            },
+        ) else Debug.trap("Failed to find buttonIndex field");
+        let (buttonIndexKey, #Number(buttonIndex)) = buttonIndexField else Debug.trap("C: " # debug_show (untrustedData));
+        buttonIndex;
+        // TODO fix json -> candid parsing
+        // let split = Text.split(jsonText, #text("\"trustedData"));
+        // let ?real = split.next() else Prelude.unreachable();
+        // Debug.trap(real);
+        // let candidBlob = switch (Serde.JSON.fromText(real # "}", null)) {
+        //     case (#ok(blob)) blob;
+        //     case (#err(e)) Debug.trap("Failed to encode candid: " # e);
+        // };
+        // let ?message : ?FarcasterMessage = from_candid (candidBlob) else Debug.trap("Failed to decode candid");
 
-        message.untrustedData.buttonIndex;
+        // message.untrustedData.buttonIndex;
     };
 
     private func buildImageCacheKey(buttonIndex : Int) : Text {
